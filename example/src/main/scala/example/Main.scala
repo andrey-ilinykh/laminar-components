@@ -35,6 +35,7 @@ object Main {
   val nodeData = data.signal.map(personSeq => personSeq.map( foo =>  PersonNode(foo)))
 
 
+  persons(0).equals(persons(2))
   implicit val owner = new ManualOwner
   timer.foreach { _ =>
     persons = persons.map(f => f.copy(age = f.age + 1, citizen = !f.citizen))

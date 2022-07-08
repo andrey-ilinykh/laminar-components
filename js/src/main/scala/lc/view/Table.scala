@@ -76,7 +76,7 @@ object CellRenderer {
 
 }
 
-case class Item[R, K](row: R, key: Seq[K], pKey: Seq[K], expanded: Boolean)
+case class Item[R, K](row: R, key: Seq[K], pKey: Seq[K], expanded: Boolean, hasChildren: Boolean)
 
 case class IS[R, K](data: Map[Seq[K], Item[R, K]]) {
   def merge(tnSeq: Seq[TreeNode[R]], keyFn: R => K): IS[R, K] = {
@@ -84,7 +84,7 @@ case class IS[R, K](data: Map[Seq[K], Item[R, K]]) {
       seq.foldLeft(map) {
         case (m, tn) =>
           val k = pSeq :+ keyFn(tn.row)
-          val ni = map.get(k).map(item => item.copy(row = tn.row)).getOrElse(Item(tn.row, k, pSeq, false))
+          val ni = map.get(k).map(item => item.copy(row = tn.row)).getOrElse(Item(tn.row, k, pSeq, false, tn.children.nonEmpty))
 
           doMerge(k, tn.children, m + (k -> ni))
       }
@@ -182,10 +182,18 @@ object Table {
         }
 
       def renderHeadCell(r: R, tc: Option[TC[R]]) = {
+        def renderCaret(i: Item[R, K]) ={
+          if(i.hasChildren){
+            (if (i.expanded) Utils.caretDown else Utils.caretRight)
+              .amend(onClick.mapTo(()) --> Observer[Unit] { _ =>
+                state.set(state.now().flop(k))
+              } )
+          } else
+            Utils.caretEmpty
+        }
         val mods = Seq(
           paddingLeft := s"${tn.key.length}em",
-          child <-- signal.map(i => if (i.expanded) Utils.caretDown else Utils.caretRight),
-          //child.text <-- signal.map(_.toString),
+          child <-- signal.map(i => renderCaret(i)),
           onDblClick.mapTo(0) --> Observer[Int] { _ =>
             state.set(state.now().flop(k))
 
