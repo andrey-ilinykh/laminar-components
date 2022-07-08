@@ -2,7 +2,7 @@ package lc.model
 
 import lc.view.TC
 
-sealed trait TableEvent[-R, K] {
+sealed trait TableEvent[+R, +K] {
 
 }
 
