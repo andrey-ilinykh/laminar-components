@@ -5,7 +5,7 @@ import com.raquo.airstream.ownership.ManualOwner
 import com.raquo.airstream.state.Var
 import com.raquo.laminar.api.L._
 import lc.view._
-import lc.model.{Column, TableEvent, TreeNode}
+import lc.model.{CellSelected, Column, TableEvent, TreeNode}
 import org.scalajs.dom
 
 
@@ -56,7 +56,7 @@ object Main {
           .action("Action", "x"),
         nodeData,
         Some(Observer[TableEvent[Person, String]]{
-          case evt => println(evt)
+          case CellSelected(o, _, _) => println(o)
         })
       ),
       p(),
