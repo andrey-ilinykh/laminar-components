@@ -48,7 +48,7 @@ object Main {
       Table.treeTable[Person, String](
         TableConfig[Person, String](
           _.name,
-        ).withColumn("Name", _.name)
+        ).withColumn("Name", _.name, Some(false))
           .withColumn("Age", _.age)
           .withColumn("Double Age", _.age * 2)
           .withColumn("Address", _.address)
@@ -60,15 +60,6 @@ object Main {
         })
       ),
       p(),
-      Table.renderTable1[Person, String](
-        Seq(
-          Column[Person]("Name", _.name),
-          Column[Person]("Age", _.age.toString),
-          Column[Person]("Address", _.address),
-        ),
-        _.name,
-        data.signal
-      ),
       div("Simple table"),
       Table.renderTable(TableConfig[Person, String](
         _.name,
