@@ -35,6 +35,7 @@ val baseScalacSettings =
     "-Yno-adapted-args" ::
     "-Ywarn-value-discard" ::
     "-Ywarn-unused" ::
+    "-Xlog-implicits" ::
     Nil
 
 lazy val scalacSettings = Seq(

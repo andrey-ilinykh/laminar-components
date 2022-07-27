@@ -36,6 +36,7 @@ object Styles extends StyleSheet.Inline {
     borderTop(1.px, solid, Color("#dee2e6") )
   )
   val table = style(
+    tableLayout.fixed,
     width(100.%%),
     marginBottom(1.rem),
     backgroundColor(Color("transparent")),

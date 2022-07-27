@@ -5,7 +5,7 @@ import com.raquo.airstream.ownership.ManualOwner
 import com.raquo.airstream.state.Var
 import com.raquo.laminar.api.L._
 import lc.view._
-import lc.model.{CellSelected, Column, TableEvent, TreeNode}
+import lc.model.{TableEvent, TreeNode}
 import org.scalajs.dom
 
 
@@ -44,25 +44,25 @@ object Main {
 
   def renderPage() = {
 
+    import TableColumnModifier.sorting
+    import Table._
     div(
-      Table.treeTable[Person, String](
-        TableConfig[Person, String](
-          _.name,
-        ).withColumn("Name", _.name, Some(false))
-          .withColumn("Age", _.age)
-          .withColumn("Double Age", _.age * 2)
-          .withColumn("Address", _.address)
-          .withColumn("Citizen", _.citizen)
-          .action("Action", "x"),
+      treeTable[Person, String](
+        _.name,
         nodeData,
-        Some(Observer[TableEvent[Person, String]]{
-          case CellSelected(o, _, _) => println(o)
-        })
+        column("Name", _.name, sorting.asc, sorting.desc),
+        column("Age", _.age),
+        column("Double Age", _.age * 2),
+        column("Address", _.address),
+        column("Citizen", _.citizen),
+        TableConfigModifier.selectedRow[Person, String](Observer(sr => println(s"SelectedRow = $sr")))
       ),
       p(),
       div("Simple table"),
       Table.renderTable(TableConfig[Person, String](
         _.name,
+        Seq(),
+
       ).withColumn("Name", _.name)
        .withColumn("Age", _.age)
         .withColumn("Double Age", _.age * 2)

@@ -6,7 +6,30 @@ import lc.model._
 import org.scalajs.dom
 import org.scalajs.dom.html
 
-
+//case class Col[T](t: T, i: Int = 0, s: Option[String] = None)
+//
+//trait ColUpdater{
+//  def update[T](c: Col[T]): Col[T]
+//}
+//object colupdater {
+//   def iupdate(i: Int): ColUpdater = new ColUpdater {
+//     override def update[T](c: Col[T]): Col[T] = c.copy(i = i)
+//   }
+//
+//   def supdate(s: String)(c: Col[_]): Col[_] = c.copy(s = Some(s))
+//}
+//
+//object removeme {
+//  def buildCol[T](t: T, cms: ColUpdater[Col] *) = {
+//    cms.foldLeft(Col(t)){
+//      case (result, u) => u.update(result)
+//    }
+//  }
+//
+//  def doIt() ={
+//    buildCol[Double](4.0, colupdater.iupdate(23))
+//  }
+//}
 
 sealed trait CellRenderer[C] {
   def render(c: C): Seq[Modifier[ReactiveHtmlElement[dom.html.Element]]]
@@ -26,6 +49,7 @@ trait TC[R] {
 }
 
 case class ActionColumn[R](name: String, label: String, renderer: ActionRenderer) extends TC[R] {
+
   //  type C = Unit
   //
   //  override def extract: R => Unit = _ => ()
@@ -45,7 +69,26 @@ case class TableColumn[R, CC:Ordering](name: String, extract: R => CC, ascending
   }
 }
 
-case class TableConfig[R, K](key: R => K, columns: Seq[TC[R]] = Seq()) {
+trait TableColumnModifier{
+  def update[R, C: Ordering](tc: TableColumn[R, C]): TableColumn[R, C]
+}
+
+object TableColumnModifier{
+  object sorting{
+    def asc = new TableColumnModifier{
+      override def update[R, C: Ordering](tc: TableColumn[R, C]): TableColumn[R, C] = tc.copy(ascending = Some(true))
+    }
+    def desc = new TableColumnModifier{
+      override def update[R, C: Ordering](tc: TableColumn[R, C]): TableColumn[R, C] = tc.copy(ascending = Some(false))
+    }
+    def none = new TableColumnModifier{
+      override def update[R, C: Ordering](tc: TableColumn[R, C]): TableColumn[R, C] = tc.copy(ascending = None)
+    }
+  }
+}
+
+case class TableConfig[R, K](key: R => K, columns: Seq[TC[R]] = Seq() , selectedRow: Option[Observer[Option[R]]] = None ) {
+  //val selectedRow: Var[Option[R]] = Var(None)
   def withColumn(tc: TC[R]): TableConfig[R, K] = copy(columns = this.columns :+ tc)
 
   def withColumn[C: CellRenderer:Ordering](name: String, f: R => C, ascending: Option[Boolean] = None): TableConfig[R, K] = {
@@ -54,6 +97,16 @@ case class TableConfig[R, K](key: R => K, columns: Seq[TC[R]] = Seq()) {
 
   def action(name: String, label: String) =
     withColumn(ActionColumn(name, label, ActionRenderer.outlineButton))
+}
+
+trait TableConfigModifier[R, K] {
+  def modify(tc: TableConfig[R, K]): TableConfig[R, K]
+}
+
+object TableConfigModifier {
+  def selectedRow[R, K](observer: Observer[Option[R]]) = new TableConfigModifier[R, K] {
+    override def modify(tc: TableConfig[R, K]): TableConfig[R, K] = tc.copy(selectedRow = Some(observer))
+  }
 }
 
 object ActionRenderer {
@@ -161,9 +214,17 @@ case class IS[R, K](data: Map[K, Item[R, K]]) {
   }
 }
 
+
+
 object Table {
+  //type TableModifier[R, K] = TableConfig[R, K] => TableConfig[R, K]
 
-
+  def column[R, K, C: Ordering: CellRenderer](name: String, extractor: R => C, cms: TableColumnModifier *): TableConfigModifier[R, K] = tc => {
+    val col = cms.foldLeft(TableColumn[R, C](name, extractor, None, implicitly[CellRenderer[C]])) {
+      case (result, cm) => cm.update(result)
+    }
+    tc.copy(columns = tc.columns :+ col )
+  }
 
  def noordering[R] = new Ordering[R] {
     override def compare(x: R, y: R): Int = 0
@@ -176,41 +237,48 @@ object Table {
   GlobalRegistry.addToDocumentOnRegistration()
   GlobalRegistry.register(Styles)
 
+  private def renderCell[R, K]( key: K, r: R, c: TC[R])(implicit observer: Option[Observer[TableEvent[R, K]]], selectedCell: Observer[Option[CellSelected[R, K]]]) =
+    c match {
+      case TableColumn(_, extract, _, renderer) =>
+        val mods = (renderer.render(extract(r)) :+ (onClick.mapTo(Some(CellSelected(r, key, c))) --> selectedCell))
+        mods ++ observer.map { o =>
+          Seq(onClick.mapTo(CellClicked(r, key, c)) --> o)
+        }.getOrElse(Seq())
 
-  def treeTable[R, K](tc: TableConfig[R, K], data: Signal[Seq[TreeNode[R]]], observer: Option[Observer[TableEvent[R, K]]] = None)/*(implicit ord: Ordering[K])*/ = {
+      case ActionColumn(_, l, renderer) =>
+        val mods = renderer.render(l)
+        val omods: Seq[Modifier[ReactiveHtmlElement[dom.html.Element]]] = observer.map { o =>
+          Seq(
+            onClick.mapTo(Some(CellSelected(r, key, c))) --> selectedCell,
+            onClick.mapTo(CellClicked(r, key, c)) --> o,
+            onClick.mapTo(Action(r, key, c)) --> o
+          )
+        }.getOrElse(Seq())
+        Seq(
+          button(
+            mods ++ omods
+          ),
+          onClick.mapTo(Some(CellSelected(r, key, c))) --> selectedCell,
+        )
+
+    }
+
+  def treeTable[R, K](keyFn: R => K, data: Signal[Seq[TreeNode[R]]], tmods: TableConfigModifier[R, K] *)/*(implicit ord: Ordering[K])*/ = {
+    implicit val observer: Option[Observer[TableEvent[R, K]]] = None
+    val tc = tmods.foldLeft(TableConfig[R, K](keyFn, Seq())) {
+      case (tc, tm) => tm.modify(tc)
+    }
+
     val empty: Map[K, Item[R, K]] = Map()
     val state: Var[IS[R, K]] = Var(IS(empty))
     //val selectedRow: Var[Option[K]] = Var(None)
     val selectedCell: Var[Option[CellSelected[R, K]]] = Var(None)
+    implicit val selectedSellObs = selectedCell.writer
     val ord: Ordering[R] = tc.columns.collect{ case ord: TableColumn[_, _] => ord}.headOption.getOrElse(noordering)
     val flatData = state.signal.map(is => is.flatten(ord))
 
 
     def renderRow(key: K, tn: Item[R, K], signal: Signal[Item[R, K]]): ReactiveHtmlElement[html.TableRow] = {
-
-
-      def renderCell(r: R, c: TC[R]) =
-        c match {
-          case TableColumn(_, extract, _, renderer) =>
-            val mods = (renderer.render(extract(r)) :+ (onClick.mapTo(Some(CellSelected(r, key, c))) --> selectedCell)) //++
-            mods
-          case ActionColumn(_, l, renderer) =>
-            val mods = renderer.render(l)
-            val omods: Seq[Modifier[ReactiveHtmlElement[dom.html.Element]]] = observer.map { o =>
-              Seq(
-                onClick.mapTo(Some(CellSelected(r, key, c))) --> selectedCell,
-                onClick.mapTo(Action(r, key, c)) --> o
-              )
-            }.getOrElse(Seq())
-            //val selmod = observer.map(o => Seq(onClick.mapTo(CellSelected(r, key, c)) --> o)).getOrElse(Seq())
-            Seq(
-              button(
-                mods ++ omods
-              ),
-              onClick.mapTo(Some(CellSelected(r, key, c))) --> selectedCell,
-            ) //++ selmod
-
-        }
 
       def renderHeadCell(r: R, tc: Option[TC[R]]) = {
         def renderCaret(i: Item[R, K]) ={
@@ -229,14 +297,14 @@ object Table {
             state.set(state.now().flop(key))
 
           })
-        val cellMods = tc.map(c => renderCell(r, c)).getOrElse(Seq())
+        val cellMods = tc.map(c => renderCell( key, r, c)).getOrElse(Seq())
         td(
           mods ++ cellMods
         )
       }
 
       tr(
-        //cls <-- selectedRow.signal.map(_.map(sr => if (sr == tn.key(tn.key.length - 1)) Styles.selectedRow.htmlClass else "").getOrElse("")),
+
         cls <-- selectedCell.signal.map(_.map(sr => if (sr.key == tn.key) Styles.selectedRow.htmlClass else "").getOrElse("")),
         child <-- signal.map { r =>
           renderHeadCell(r.row, tc.columns.headOption)
@@ -244,7 +312,7 @@ object Table {
 
         children <-- signal.map { r =>
           tc.columns.tail.map { c =>
-            td(renderCell(r.row, c))
+            td(renderCell( key, r.row, c))
           }
         }
 
@@ -252,6 +320,7 @@ object Table {
     }
 
     table(
+      tc.selectedRow.map(sr => selectedCell.signal.map(x =>  x.map(_.row)) --> sr),
       observer.map( o => selectedCell.signal.changes.collect{case Some(evt) => evt} --> o) ,
       cls := Seq(Styles.tableBordered.htmlClass, Styles.table.htmlClass),
       data.map(nList => state.now().merge(nList, tc.key)) --> Observer(x => state.set(x)),
@@ -268,67 +337,20 @@ object Table {
     )
   }
 
-  def renderSimpleTable[T](columns: Seq[Column[T]], signal: Signal[Seq[T]]) = {
-    table(
-      thead(
-        tr(
-          columns.map { c =>
-            th(c.columnName)
-          }
-        )
-      ),
-      tbody(
-        children <-- signal.map { seq =>
-          seq.map { t =>
-            tr(
-              columns.map { c =>
-                td(c.columnData(t))
-              }
-            )
-          }
-        }
-      )
-    )
-  }
 
-  def renderTable[R, K](tc: TableConfig[R, K], s: Signal[Seq[R]], observer: Option[Observer[TableEvent[R, K]]] = None) = {
+  def renderTable[R, K](tc: TableConfig[R, K], s: Signal[Seq[R]], obs: Option[Observer[TableEvent[R, K]]] = None) = {
+    implicit val observer: Option[Observer[TableEvent[R, K]]] = obs
     val signal = s.map(_.zipWithIndex)
-    val selectedRow: Var[Option[Int]] = Var(None)
+    val selectedCell: Var[Option[CellSelected[R, K]]] = Var(None)
+    implicit val selectedSellObs = selectedCell.writer
 
     def renderRow(key: K, row: (R, Int), signal: Signal[(R, Int)]) = {
-      def renderCell(r: (R, Int), c: TC[R]) =
-        c match {
-          case TableColumn(_, extract, _, renderer) =>
-            val mods = (renderer.render(extract(r._1)) :+ (onClick.mapTo(Some(r._2)) --> selectedRow)) ++
-              observer.map { o =>
-                Seq(
-                  onClick.mapTo(CellSelected(r._1, key, c)) --> o,
-                )
-              }.getOrElse(Seq())
-            td(mods)
-          case ActionColumn(_, l, renderer) =>
-            val mods = renderer.render(l)
-            val omods: Seq[Modifier[ReactiveHtmlElement[dom.html.Element]]] = observer.map { o =>
-              Seq(
-                onClick.mapTo(CellSelected(r._1, key, c)) --> o,
-                onClick.mapTo(Action(r._1, key, c)) --> o
-              )
-            }.getOrElse(Seq())
-            val selmod = observer.map(o => Seq(onClick.mapTo(CellSelected(r._1, key, c)) --> o)).getOrElse(Seq())
-            td(
-              button(
-                mods ++ omods
-              ),
-              onClick.mapTo(Some(r._2)) --> selectedRow,
-              selmod
-            )
-        }
 
       tr(
-        cls <-- selectedRow.signal.map(_.map(sr => if (sr == row._2) Styles.selectedRow.htmlClass else "").getOrElse("")),
+        cls <-- selectedCell.signal.map(_.map(sr => if (sr.key == key) Styles.selectedRow.htmlClass else "").getOrElse("")),
         children <-- signal.map { r =>
           tc.columns.map { c =>
-            renderCell(r, c)
+            td(renderCell(key, r._1, c))
           }
         }
       )
