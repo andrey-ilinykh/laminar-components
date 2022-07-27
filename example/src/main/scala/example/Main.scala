@@ -59,21 +59,15 @@ object Main {
       ),
       p(),
       div("Simple table"),
-      Table.renderTable(TableConfig[Person, String](
+      renderTable[Person, String](
         _.name,
-        Seq(),
-
-      ).withColumn("Name", _.name)
-       .withColumn("Age", _.age)
-        .withColumn("Double Age", _.age * 2)
-       .withColumn("Address", _.address)
-       .withColumn("Citizen", _.citizen)
-        .action("Action", "x")
-        , data.signal,
-          Some(Observer[TableEvent[Person, String]]{
-          case evt => println(evt)
-        }
-        )
+        data.signal,
+        column("Name", _.name, sorting.asc, sorting.desc),
+        column("Age", _.age),
+        column("Double Age", _.age * 2),
+        column("Address", _.address),
+        column("Citizen", _.citizen),
+        TableConfigModifier.selectedRow[Person, String](Observer(sr => println(s"SelectedRow = $sr")))
       )
     )
   }

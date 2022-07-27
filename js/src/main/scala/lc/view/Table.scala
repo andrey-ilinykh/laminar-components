@@ -265,7 +265,7 @@ object Table {
 
   def treeTable[R, K](keyFn: R => K, data: Signal[Seq[TreeNode[R]]], tmods: TableConfigModifier[R, K] *)/*(implicit ord: Ordering[K])*/ = {
     implicit val observer: Option[Observer[TableEvent[R, K]]] = None
-    val tc = tmods.foldLeft(TableConfig[R, K](keyFn, Seq())) {
+    val tblConfig = tmods.foldLeft(TableConfig[R, K](keyFn, Seq())) {
       case (tc, tm) => tm.modify(tc)
     }
 
@@ -274,7 +274,7 @@ object Table {
     //val selectedRow: Var[Option[K]] = Var(None)
     val selectedCell: Var[Option[CellSelected[R, K]]] = Var(None)
     implicit val selectedSellObs = selectedCell.writer
-    val ord: Ordering[R] = tc.columns.collect{ case ord: TableColumn[_, _] => ord}.headOption.getOrElse(noordering)
+    val ord: Ordering[R] = tblConfig.columns.collect{ case ord: TableColumn[_, _] => ord}.headOption.getOrElse(noordering)
     val flatData = state.signal.map(is => is.flatten(ord))
 
 
@@ -307,11 +307,11 @@ object Table {
 
         cls <-- selectedCell.signal.map(_.map(sr => if (sr.key == tn.key) Styles.selectedRow.htmlClass else "").getOrElse("")),
         child <-- signal.map { r =>
-          renderHeadCell(r.row, tc.columns.headOption)
+          renderHeadCell(r.row, tblConfig.columns.headOption)
         },
 
         children <-- signal.map { r =>
-          tc.columns.tail.map { c =>
+          tblConfig.columns.tail.map { c =>
             td(renderCell( key, r.row, c))
           }
         }
@@ -320,13 +320,13 @@ object Table {
     }
 
     table(
-      tc.selectedRow.map(sr => selectedCell.signal.map(x =>  x.map(_.row)) --> sr),
+      tblConfig.selectedRow.map(sr => selectedCell.signal.map(x =>  x.map(_.row)) --> sr),
       observer.map( o => selectedCell.signal.changes.collect{case Some(evt) => evt} --> o) ,
       cls := Seq(Styles.tableBordered.htmlClass, Styles.table.htmlClass),
-      data.map(nList => state.now().merge(nList, tc.key)) --> Observer(x => state.set(x)),
+      data.map(nList => state.now().merge(nList, tblConfig.key)) --> Observer(x => state.set(x)),
       thead(
         tr(
-          tc.columns.map { c =>
+          tblConfig.columns.map { c =>
             th(c.name)
           }
         )
@@ -338,67 +338,44 @@ object Table {
   }
 
 
-  def renderTable[R, K](tc: TableConfig[R, K], s: Signal[Seq[R]], obs: Option[Observer[TableEvent[R, K]]] = None) = {
-    implicit val observer: Option[Observer[TableEvent[R, K]]] = obs
-    val signal = s.map(_.zipWithIndex)
+  def renderTable[R, K](keyFn: R => K, data: Signal[Seq[R]], tmods: TableConfigModifier[R, K] *) = {
+    implicit val observer: Option[Observer[TableEvent[R, K]]] = None
+
     val selectedCell: Var[Option[CellSelected[R, K]]] = Var(None)
     implicit val selectedSellObs = selectedCell.writer
 
-    def renderRow(key: K, row: (R, Int), signal: Signal[(R, Int)]) = {
+    val tblConf = tmods.foldLeft(TableConfig[R, K](keyFn, Seq())) {
+      case (tc, tm) => tm.modify(tc)
+    }
+
+    def renderRow(key: K, row: R, signal: Signal[R]) = {
 
       tr(
         cls <-- selectedCell.signal.map(_.map(sr => if (sr.key == key) Styles.selectedRow.htmlClass else "").getOrElse("")),
         children <-- signal.map { r =>
-          tc.columns.map { c =>
-            td(renderCell(key, r._1, c))
-          }
-        }
-      )
-    }
-
-    table(cls := Seq(Styles.tableBordered.htmlClass, Styles.table.htmlClass),
-      thead(
-        tr(
-          tc.columns.map { c =>
-            th(c.name)
-          }
-        )
-      ),
-      tbody(
-        children <-- signal.split(x => tc.key(x._1))(renderRow)
-      )
-    )
-  }
-
-
-  def renderTable[R, K](columns: Seq[Column[R]], key: R => K, signal: Signal[Seq[R]]) = {
-    def renderRow(key: K, row: R, signal: Signal[R]) = {
-      tr(
-        children <-- signal.map { r =>
-          columns.map { c =>
-            td(
-              contentEditable := true,
-              c.columnData(r),
-
-            )
+          tblConf.columns.map { c =>
+            td(renderCell(key, r, c))
           }
         }
       )
     }
 
     table(
+      cls := Seq(Styles.tableBordered.htmlClass, Styles.table.htmlClass),
+      tblConf.selectedRow.map(sr => selectedCell.signal.map(x =>  x.map(_.row)) --> sr),
+      observer.map( o => selectedCell.signal.changes.collect{case Some(evt) => evt} --> o) ,
+
       thead(
         tr(
-          columns.map { c =>
-            th(c.columnName)
+          tblConf.columns.map { c =>
+            th(c.name)
           }
         )
       ),
       tbody(
-        children <-- signal.split(key)(renderRow)
+        children <-- data.split(x => tblConf.key(x))(renderRow)
       )
     )
   }
-
-
+  
 }
