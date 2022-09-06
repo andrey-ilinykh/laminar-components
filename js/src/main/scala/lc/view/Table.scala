@@ -265,6 +265,7 @@ object Table {
 
   def treeTable[R, K](keyFn: R => K, data: Signal[Seq[TreeNode[R]]], tmods: TableConfigModifier[R, K] *)/*(implicit ord: Ordering[K])*/ = {
     implicit val observer: Option[Observer[TableEvent[R, K]]] = None
+    val sorter: Var[Option[Sorter[R]]] = Var(None)
     val tblConfig = tmods.foldLeft(TableConfig[R, K](keyFn, Seq())) {
       case (tc, tm) => tm.modify(tc)
     }
@@ -275,7 +276,10 @@ object Table {
     val selectedCell: Var[Option[CellSelected[R, K]]] = Var(None)
     implicit val selectedSellObs = selectedCell.writer
     val ord: Ordering[R] = tblConfig.columns.collect{ case ord: TableColumn[_, _] => ord}.headOption.getOrElse(noordering)
-    val flatData = state.signal.map(is => is.flatten(ord))
+
+    val flatData = state.signal.combineWith(sorter).mapN{
+      case (is, s) =>  is.flatten(s.getOrElse(noordering))
+    }
 
 
     def renderRow(key: K, tn: Item[R, K], signal: Signal[Item[R, K]]): ReactiveHtmlElement[html.TableRow] = {
@@ -326,8 +330,11 @@ object Table {
       data.map(nList => state.now().merge(nList, tblConfig.key)) --> Observer(x => state.set(x)),
       thead(
         tr(
-          tblConfig.columns.map { c =>
-            th(c.name)
+          tblConfig.columns.map {
+            case c: TableColumn[R, Ordering[_]] =>
+              renderHeaderCell(c, sorter.signal, sorter.writer)
+            case tc =>
+              th(tc.name)
           }
         )
       ),
@@ -337,15 +344,56 @@ object Table {
     )
   }
 
+  private case class Sorter[R](tc:TC[R] with Ordering[R], asc: Boolean ) extends Ordering[R] {
+    override def compare(x: R, y: R): Int = if(asc) tc.compare(x, y) else -tc.compare(x, y)
+  }
+
+  private def renderHeaderCell[R](tc: TC[R] with Ordering[R], sortBySignal: Signal[Option[Sorter[R]]], sortByObserver: Observer[Option[Sorter[R]]]) = {
+    th(
+      child <-- sortBySignal.signal.map { b =>
+        b match {
+          case Some(Sorter(ord, true)) if tc.name == ord.name =>
+            div(
+              display.inline,
+              onClick.mapTo(Some(Sorter(ord, false))) --> sortByObserver,
+              ord.name,
+              Utils.sortUp.amend(svg.cls := Styles.vertAlign.htmlClass)
+            )
+          case Some(Sorter(ord, false)) if tc.name == ord.name =>
+            div(
+              display.inline,
+              onClick.mapTo(None) --> sortByObserver,
+              ord.name,
+              Utils.sortDown.amend(svg.cls := Styles.vertAlign.htmlClass)
+            )
+          case _ => div(
+            display.inline,
+            onClick.mapTo(Some(Sorter(tc, true))) --> sortByObserver,
+            tc.name,
+            Utils.dash.amend(svg.cls := Styles.vertAlign.htmlClass)
+          )
+        }
+      }
+    )
+  }
+
 
   def renderTable[R, K](keyFn: R => K, data: Signal[Seq[R]], tmods: TableConfigModifier[R, K] *) = {
     implicit val observer: Option[Observer[TableEvent[R, K]]] = None
-
+    val sorter: Var[Option[Sorter[R]]] = Var(None)
     val selectedCell: Var[Option[CellSelected[R, K]]] = Var(None)
     implicit val selectedSellObs = selectedCell.writer
 
     val tblConf = tmods.foldLeft(TableConfig[R, K](keyFn, Seq())) {
       case (tc, tm) => tm.modify(tc)
+    }
+
+    val sortedData = data.combineWith(sorter).mapN{
+      case (data, Some(sorter)) =>
+        data.sorted(sorter)
+
+      case (data, None) =>
+        data
     }
 
     def renderRow(key: K, row: R, signal: Signal[R]) = {
@@ -367,15 +415,18 @@ object Table {
 
       thead(
         tr(
-          tblConf.columns.map { c =>
-            th(c.name)
+          tblConf.columns.map {
+            case c: TableColumn[R, Ordering[_]] =>
+              renderHeaderCell(c, sorter.signal, sorter.writer)
+            case tc =>
+              th(tc.name)
           }
         )
       ),
       tbody(
-        children <-- data.split(x => tblConf.key(x))(renderRow)
+        children <-- sortedData.split(x => tblConf.key(x))(renderRow)
       )
     )
   }
-  
+
 }

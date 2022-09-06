@@ -51,6 +51,11 @@ object Styles extends StyleSheet.Inline {
     backgroundColor(Color("#17a2b8"))
   )
 
+  val vertAlign = style(
+    verticalAlign.middle,
+    paddingLeft(5.px)
+  )
+
 
   val tableBordered = style(
     border(1.px, solid, Color("#dee2e6")),
